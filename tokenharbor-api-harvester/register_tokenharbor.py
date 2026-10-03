@@ -233,7 +233,7 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
 
         if "Too many sign-ups" in body_text or "try again in an hour" in body_text:
             print("[!] TokenHarbor Rate Limit: 'Too many sign-ups from this network. Please try again in an hour.'", flush=True)
-            return None
+            return {"status": "rate_limited"}
 
         # Step 4: Verification link via IMAP
         verify_link = wait_for_verification_email(account_email, baseline_uids=baseline_uids, timeout=90)
@@ -388,13 +388,19 @@ def main():
                 successful_keys.append(result)
                 success = True
                 break
+            elif result and result.get("status") == "rate_limited":
+                if not p_obj:
+                    print("\n[!] Rate limit active on direct IP. Aborting to protect your IP address.", flush=True)
+                    break
             else:
                 if retry < max_retries - 1:
                     print(f"[*] Retry {retry + 1}/{max_retries} with next proxy in pool...", flush=True)
                     time.sleep(3)
 
         if not success:
-            print(f"[!] Failed to harvest account {i} after {max_retries} retries.", flush=True)
+            print(f"[!] Failed to harvest account {i}.", flush=True)
+            if result and result.get("status") == "rate_limited" and not p_obj:
+                break
 
     print("\n" + "=" * 65)
     print(f"   HARVEST COMPLETED: {len(successful_keys)}/{args.count} Keys Harvested!")

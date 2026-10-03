@@ -181,28 +181,29 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
     try:
         page = ChromiumPage(co)
 
-        # Step 1: Open Login/Signup page
-        print("[1/6] Navigating to https://tokenharbor.ai/login?next=%2Fdashboard ...", flush=True)
-        page.get("https://tokenharbor.ai/login?next=%2Fdashboard")
+        # Step 1: Open direct Signup page
+        print("[1/6] Navigating to https://tokenharbor.ai/login?mode=signup ...", flush=True)
+        page.get("https://tokenharbor.ai/login?mode=signup")
         time.sleep(3)
 
-        # Step 2: Switch to Sign up form
-        print("[2/6] Switching to 'Create an account'...", flush=True)
-        create_btn = page.ele('xpath://button[contains(., "Create an account")]', timeout=6)
-        if create_btn:
-            create_btn.click()
-        else:
-            signup_tab = page.ele('xpath://button[contains(., "Sign up")]', timeout=4)
-            if signup_tab:
-                signup_tab.click()
-        time.sleep(2.5)
-
-        email_inp = page.ele('@name=email', timeout=8)
-        pass_inp = page.ele('@name=password', timeout=8)
+        email_inp = page.ele('@name=email', timeout=10)
+        pass_inp = page.ele('@name=password', timeout=10)
 
         if not email_inp or not pass_inp:
             print("[!] Email/password form inputs not found.", flush=True)
             return None
+
+        # Step 2: Ensure form is in Sign up mode
+        submit_btn = page.ele('xpath://button[normalize-space()="Create account"]', timeout=3)
+        if not submit_btn:
+            print("[2/6] Switching to 'Create an account'...", flush=True)
+            create_btn = page.ele('xpath://button[contains(., "Create an account")]', timeout=5) or page.ele('xpath://a[contains(., "Create an account")]', timeout=5)
+            if create_btn:
+                create_btn.click()
+                time.sleep(2)
+            submit_btn = page.ele('xpath://button[normalize-space()="Create account"]') or page.ele('xpath://button[@type="submit"]')
+        else:
+            print("[2/6] Direct 'Create account' signup form active.", flush=True)
 
         # Step 3: Fill credentials with human-like typing simulation
         print("[3/6] Typing credentials with human delays...", flush=True)
@@ -217,24 +218,36 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
         time.sleep(0.3)
         for ch in account_pass:
             pass_inp.input(ch)
-            time.sleep(0.03, 0.07)
+            time.sleep(random.uniform(0.03, 0.07))
 
         # Wait human cooldown to avoid 'doing that a bit fast' rate threshold
-        time.sleep(4)
+        time.sleep(6)
 
-        submit_btn = page.ele('xpath://button[normalize-space()="Create account"]') or page.ele('xpath://button[@type="submit"]')
         if submit_btn:
             submit_btn.click()
         print("[4/6] Registration form submitted. Awaiting confirmation...", flush=True)
 
         time.sleep(5)
         body_text = page.ele('tag:body').text
+        if "bit fast" in body_text:
+            print("  [*] Velocity defense triggered ('doing that a bit fast'). Cooling down 7s and resubmitting...", flush=True)
+            time.sleep(7)
+            retry_btn = page.ele('xpath://button[normalize-space()="Create account"]') or page.ele('xpath://button[@type="submit"]')
+            if retry_btn:
+                retry_btn.click()
+                time.sleep(5)
+            body_text = page.ele('tag:body').text
+
         if "not supported" in body_text:
             print("[!] Proxy IP flagged by TokenHarbor (VPN/Proxy detected).", flush=True)
             return None
 
+        if "Too many sign-ups" in body_text or "try again in an hour" in body_text:
+            print("[!] TokenHarbor Rate Limit: 'Too many sign-ups from this network. Please try again in an hour.'", flush=True)
+            return None
+
         # Step 4: Verification link via IMAP
-        verify_link = wait_for_verification_email(account_email, baseline_uids=baseline_uids, timeout=60)
+        verify_link = wait_for_verification_email(account_email, baseline_uids=baseline_uids, timeout=90)
         if verify_link:
             print("[5/6] Confirming email verification in browser session...", flush=True)
             page.get(verify_link)
@@ -252,25 +265,49 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
         # Step 5: Navigate to API Keys page and create a key
         print("[6/6] Generating TokenHarbor API Key...", flush=True)
         page.get("https://tokenharbor.ai/dashboard/api-keys")
-        time.sleep(3)
+        time.sleep(4)
 
-        new_key_btn = page.ele('xpath://button[contains(., "+ New key")]', timeout=6)
+        new_key_btn = (
+            page.ele('xpath://button[contains(., "New key") or contains(., "New Key")]', timeout=6)
+            or page.ele('xpath://button[contains(., "Create key") or contains(., "Create Key")]', timeout=4)
+            or page.ele('text:New key', timeout=4)
+            or page.ele('xpath://button[contains(., "+")]', timeout=3)
+        )
         if new_key_btn:
+            print("  [*] Clicking new key button...", flush=True)
             new_key_btn.click()
-            time.sleep(1)
+            time.sleep(1.5)
 
         label_inp = page.ele('xpath://input[@name="name" or @name="label" or @placeholder]', timeout=5) or page.ele('tag:input', timeout=5)
         if label_inp:
             label_inp.input("default-key")
             time.sleep(0.5)
 
-        create_key_btn = page.ele('xpath://button[normalize-space()="Create key"]', timeout=5)
+        create_key_btn = page.ele('xpath://button[normalize-space()="Create key" or normalize-space()="Create"]', timeout=5) or page.ele('xpath://button[@type="submit"]', timeout=3)
         if create_key_btn:
-            create_key_btn.click()
+            print("  [*] Submitting key creation...", flush=True)
+            try:
+                create_key_btn.click()
+            except Exception:
+                pass
             time.sleep(3)
 
         # Extract thk_live_... key from page
         matches = re.findall(r'thk_live_[a-zA-Z0-9_\-]{30,}', page.html)
+        if not matches:
+            try:
+                for el in page.eles('tag:input') + page.eles('tag:code') + page.eles('tag:span'):
+                    try:
+                        val = el.attr('value') or el.text or ''
+                        m = re.findall(r'thk_live_[a-zA-Z0-9_\-]{30,}', val)
+                        if m:
+                            matches = m
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
         if matches:
             api_key = matches[0]
             print(f"[+] Successfully harvested API Key: {api_key[:14]}...{api_key[-6:]}", flush=True)
@@ -300,6 +337,8 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
             return None
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[!] Error during harvest: {e}", flush=True)
         return None
     finally:
@@ -315,6 +354,7 @@ def main():
     parser = argparse.ArgumentParser(description="Automated TokenHarbor API Key Harvester")
     parser.add_argument("--count", type=int, default=1, help="Number of API keys to harvest (default: 1)")
     parser.add_argument("--headless", action="store_true", default=True, help="Run browser in background")
+    parser.add_argument("--use-proxy", action="store_true", default=False, help="Use Webshare rotating proxies (default: Direct IP for anti-VPN bypass)")
     args = parser.parse_args()
 
     if not GMAIL_USER or not GMAIL_PASS:
@@ -328,11 +368,14 @@ def main():
     print(f"   Output File    : {KEYS_FILE}")
     print("=" * 65)
 
-    proxies = get_webshare_proxies()
+    proxies = get_webshare_proxies() if args.use_proxy else []
     if proxies:
-        print(f"[*] 🌐 Webshare Proxy Pool Active: {len(proxies)} rotating proxies loaded.\n")
+        us_proxies = [p for p in proxies if p.get('country') == 'US']
+        other_proxies = [p for p in proxies if p.get('country') != 'US']
+        proxies = us_proxies + other_proxies
+        print(f"[*] 🌐 Webshare Proxy Pool Active: {len(proxies)} rotating proxies ({len(us_proxies)} US prioritized).\n")
     else:
-        print("[*] 🌐 Direct IP Mode Active (No proxy pool detected).\n")
+        print("[*] 🌐 Direct IP Mode Active (Clean residential connection for TokenHarbor).\n")
 
     successful_keys = []
     proxy_index = 0
@@ -343,8 +386,11 @@ def main():
         max_retries = 3
 
         for retry in range(max_retries):
-            p_obj = proxies[proxy_index % len(proxies)] if proxies else None
-            proxy_index += 1
+            if proxies and retry == 0:
+                p_obj = proxies[proxy_index % len(proxies)]
+                proxy_index += 1
+            else:
+                p_obj = None  # Direct IP fallback to bypass datacenter block
 
             result = harvest_tokenharbor(
                 index=i,

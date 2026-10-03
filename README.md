@@ -21,6 +21,12 @@
   - Automated OAuth2 Device Code flow authorization.
   - Extracts full credential sets (`access_token`, `refresh_token`, `id_token`) ready for Grok CLI & 9Router.
 
+- **⚓ TokenHarbor.ai**
+  - Automated account creation with human-like typing simulation to bypass strict anti-bot velocity defenses.
+  - Automatic email verification link extraction & browser session activation via Gmail IMAP.
+  - Activates free access to **DeepSeek-V4 Flash**, **Qwen-3.8 Flash**, and **MiniMax MiMo-v2.6**.
+  - Direct 1-click sync to 9Router under native `provider: "tokenharbor"`.
+
 - **⚡ High-Efficiency Bandwidth & Resource Optimization**
   - **~85% Bandwidth Reduction:** Google background networking, component updates, and safe browsing downloads are strictly suppressed.
   - **Memory & CPU Friendly:** Compact `800x600` viewport reduces framebuffer rasterization by 58%; GPU hardware acceleration is disabled to eliminate VRAM usage.
@@ -33,7 +39,7 @@
 
 - **☁️ 9Router 1-Click Sync**
   - Direct integration with 9Router management APIs.
-  - One-click syncing for Dahl, OpenRouter, and Grok CLI bulk imports (`/api/oauth/grok-cli/bulk-import`).
+  - One-click syncing for Dahl, OpenRouter, TokenHarbor, and Grok CLI bulk imports (`/api/oauth/grok-cli/bulk-import`).
 
 - **📊 Modern Web Dashboard**
   - Built-in monitoring dashboard on `http://localhost:5050`.
@@ -61,10 +67,15 @@ AI-Harvester/
 │   ├── test_keys.py
 │   └── keys/openrouter_keys.txt
 │
-└── grok-token-harvester/         # Grok xAI CLI Harvester
-    ├── register_grok_tokens.py
-    ├── test_grok_tokens.py
-    └── grok_accounts.json
+├── grok-token-harvester/         # Grok xAI CLI Harvester
+│   ├── register_grok_tokens.py
+│   ├── test_grok_tokens.py
+│   └── grok_accounts.json
+│
+└── tokenharbor-api-harvester/    # TokenHarbor.ai Harvester
+    ├── register_tokenharbor.py
+    ├── test_keys.py
+    └── keys/tokenharbor_keys.txt
 ```
 
 ---
@@ -127,6 +138,11 @@ python3 openrouter-api-harvester/register_openrouter.py --count 5
 **Harvest Grok xAI CLI Tokens:**
 ```bash
 python3 grok-token-harvester/register_grok_tokens.py --count 5
+```
+
+**Harvest TokenHarbor.ai Accounts:**
+```bash
+python3 tokenharbor-api-harvester/register_tokenharbor.py --count 5
 ```
 
 ---

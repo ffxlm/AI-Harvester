@@ -12,6 +12,7 @@ if os.path.exists(ENV_PATH):
 OPENROUTER_FILE = os.path.join(BASE_DIR, "openrouter-api-harvester", "keys", "openrouter_keys.txt")
 GROK_FILE = os.path.join(BASE_DIR, "grok-token-harvester", "grok_accounts.json")
 DAHL_FILE = os.path.join(BASE_DIR, "dahl-api-harvester", "keys", "dahl_keys.txt")
+TOKENHARBOR_FILE = os.path.join(BASE_DIR, "tokenharbor-api-harvester", "keys", "tokenharbor_keys.txt")
 
 # Farming task tracker
 farm_state = {
@@ -103,6 +104,10 @@ def match_router_connection(prov, item, conns):
                 return c.get("id")
             if cn == "k" and un == "user_53515":
                 return c.get("id")
+        elif prov == "tokenharbor" and "tokenharbor" in cp:
+            em = item.get("email", "").lower()
+            if em and (em in cn or em == ce):
+                return c.get("id")
     return None
 
 def push_item_to_9router(prov, item, session):
@@ -111,6 +116,9 @@ def push_item_to_9router(prov, item, session):
         r = session.post(f"{ROUTER_BASE_URL}/api/providers", json=payload, timeout=10)
     elif prov == "dahl":
         payload = {"provider": "dahl", "apiKey": item["key"], "name": f"dahl_{item.get('username')}"}
+        r = session.post(f"{ROUTER_BASE_URL}/api/providers", json=payload, timeout=10)
+    elif prov == "tokenharbor":
+        payload = {"provider": "tokenharbor", "apiKey": item["key"], "name": f"tokenharbor_{item.get('email')}"}
         r = session.post(f"{ROUTER_BASE_URL}/api/providers", json=payload, timeout=10)
     elif prov == "grok":
         clean_item = {
@@ -148,6 +156,8 @@ def sync_single_to_9router(prov, item_id):
         item = next((k for k in read_openrouter_keys() if k["id"] == item_id), None)
     elif prov == "dahl":
         item = next((k for k in read_dahl_keys() if k["id"] == item_id), None)
+    elif prov == "tokenharbor":
+        item = next((k for k in read_tokenharbor_keys() if k["id"] == item_id), None)
     elif prov == "grok":
         item = next((k for k in read_grok_accounts() if k["id"] == item_id), None)
 
@@ -174,6 +184,9 @@ def sync_all_to_9router(target_prov="all"):
     if target_prov in ("all", "dahl"):
         for k in read_dahl_keys():
             tasks.append(("dahl", k))
+    if target_prov in ("all", "tokenharbor"):
+        for k in read_tokenharbor_keys():
+            tasks.append(("tokenharbor", k))
     if target_prov in ("all", "grok"):
         for k in read_grok_accounts():
             tasks.append(("grok", k))
@@ -265,6 +278,27 @@ def save_dahl_keys(keys):
     with open(DAHL_FILE, "w", encoding="utf-8") as f:
         for k in keys:
             f.write(f"{k['username']}|{k['key']}\n")
+
+def read_tokenharbor_keys():
+    keys = []
+    if os.path.exists(TOKENHARBOR_FILE):
+        with open(TOKENHARBOR_FILE, "r", encoding="utf-8") as f:
+            for idx, line in enumerate(f):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "|" in line:
+                    email, key = line.split("|", 1)
+                else:
+                    email, key = f"tokenharbor_{idx+1}", line
+                keys.append({"id": f"tokenharbor_{idx}", "email": email.strip(), "key": key.strip()})
+    return keys
+
+def save_tokenharbor_keys(keys):
+    os.makedirs(os.path.dirname(TOKENHARBOR_FILE), exist_ok=True)
+    with open(TOKENHARBOR_FILE, "w", encoding="utf-8") as f:
+        for k in keys:
+            f.write(f"{k['email']}|{k['key']}\n")
 
 def test_single_openrouter(key):
     headers = {
@@ -364,6 +398,23 @@ def test_single_dahl(key):
     except Exception as e:
         return {"active": False, "latency": None, "error": str(e)[:50]}
 
+def test_single_tokenharbor(key):
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
+    t0 = time.time()
+    try:
+        r = requests.get("https://tokenharbor.ai/v1/models", headers=headers, timeout=10)
+        elapsed = time.time() - t0
+        if r.status_code == 200:
+            return {"active": True, "latency": round(elapsed, 2), "model": "Free DeepSeek-V4/Qwen", "error": None}
+        elif r.status_code == 403:
+            return {"active": False, "latency": round(elapsed, 2), "error": "Email unverified"}
+        return {"active": False, "latency": round(elapsed, 2), "error": f"HTTP {r.status_code}"}
+    except Exception as e:
+        return {"active": False, "latency": None, "error": str(e)[:50]}
+
 def run_farm_task(provider, count):
     global farm_state
     farm_state["running"] = True
@@ -381,6 +432,9 @@ def run_farm_task(provider, count):
         elif provider == "dahl":
             cwd = os.path.join(BASE_DIR, "dahl-api-harvester")
             script = "register_dahl.py"
+        elif provider == "tokenharbor":
+            cwd = os.path.join(BASE_DIR, "tokenharbor-api-harvester")
+            script = "register_tokenharbor.py"
         else:
             return
 
@@ -506,7 +560,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
     <!-- Top Stats (Clickable to switch tab) -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
       
       <!-- Dahl Stat -->
       <div onclick="switchTab('dahl')" class="stat-card glass-panel rounded-xl p-3.5 cursor-pointer border border-slate-800 flex items-center justify-between">
@@ -550,6 +604,20 @@ HTML_PAGE = """<!DOCTYPE html>
         </div>
       </div>
 
+      <!-- TokenHarbor Stat -->
+      <div onclick="switchTab('tokenharbor')" class="stat-card glass-panel rounded-xl p-3.5 cursor-pointer border border-slate-800 flex items-center justify-between">
+        <div>
+          <span class="text-[11px] font-medium uppercase tracking-wider text-slate-400">TokenHarbor</span>
+          <div class="text-xl font-bold text-white mt-0.5 flex items-baseline gap-1.5">
+            <span id="tokenharborCount">0</span>
+            <span class="text-[10px] font-normal text-slate-400">keys</span>
+          </div>
+        </div>
+        <div class="w-9 h-9 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+          <i class="fa-solid fa-anchor text-sm"></i>
+        </div>
+      </div>
+
     </div>
 
     <!-- Navigation Tabs Bar -->
@@ -574,6 +642,11 @@ HTML_PAGE = """<!DOCTYPE html>
           <i class="fa-solid fa-terminal text-sky-400"></i>
           <span>Grok CLI</span>
           <span id="badge_grok" class="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-slate-400">0</span>
+        </button>
+        <button onclick="switchTab('tokenharbor')" id="tabBtn_tokenharbor" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5">
+          <i class="fa-solid fa-anchor text-teal-400"></i>
+          <span>TokenHarbor</span>
+          <span id="badge_tokenharbor" class="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-slate-400">0</span>
         </button>
       </div>
 
@@ -789,6 +862,62 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- PANEL 4: TOKENHARBOR -->
+    <div id="panel_tokenharbor" class="tab-panel hidden space-y-4">
+      <div class="glass-panel rounded-xl overflow-hidden border border-slate-800">
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+              <i class="fa-solid fa-anchor text-sm"></i>
+            </div>
+            <div>
+              <h2 class="text-sm font-semibold text-white">TokenHarbor.ai Harvester</h2>
+              <p class="text-xs text-slate-400">Free models (DeepSeek-V4 Flash, Qwen-3.8 Flash, MiniMax MiMo-v2.6)</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="testKeys('tokenharbor')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-vial-circle-check text-xs text-teal-400"></i>
+              <span>Check TokenHarbor</span>
+            </button>
+            <button onclick="syncAllToRouter('tokenharbor')" class="px-3 py-1.5 rounded-lg bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/30 text-xs transition flex items-center gap-1.5 shadow-sm" title="Sync all TokenHarbor keys to 9Router">
+              <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
+              <span>Sync to 9Router</span>
+            </button>
+            <button onclick="copyAllTokenHarbor()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-copy text-xs"></i>
+              <span>Copy All (9Router Format)</span>
+            </button>
+            <div class="inline-flex rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 shadow-sm">
+              <button onclick="triggerFarm('tokenharbor', 1)" class="px-2.5 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Farm 1 account">+1</button>
+              <button onclick="triggerFarm('tokenharbor', 5)" class="px-2.5 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Farm 5 accounts with rotating proxies">+5</button>
+              <button onclick="triggerFarm('tokenharbor', 10)" class="px-2.5 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition" title="Farm 10 accounts with rotating proxies">+10</button>
+              <button onclick="promptFarm('tokenharbor')" class="px-2.5 py-1 rounded text-xs font-medium bg-teal-600 hover:bg-teal-500 text-white transition flex items-center gap-1 shadow-sm" title="Farm custom quantity">
+                <i class="fa-solid fa-play text-[9px]"></i>
+                <span>Farm</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 bg-slate-950/40 uppercase tracking-wider text-[10px]">
+                <th class="py-3 px-4">Account Email</th>
+                <th class="py-3 px-4">API Key (thk_live_...)</th>
+                <th class="py-3 px-4">9Router Sync</th>
+                <th class="py-3 px-4">Health & Latency</th>
+                <th class="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tokenharborTbody" class="divide-y divide-slate-800/60 font-mono">
+              <tr><td colspan="5" class="text-center py-8 text-slate-500">Loading keys...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Log Modal -->
@@ -816,7 +945,7 @@ HTML_PAGE = """<!DOCTYPE html>
   </div>
 
   <script>
-    let appData = { dahl: [], openrouter: [], grok: [] };
+    let appData = { dahl: [], openrouter: [], grok: [], tokenharbor: [] };
     /* __INIT_DATA__ */
     let currentTab = 'all';
     let searchQuery = '';
@@ -868,17 +997,20 @@ HTML_PAGE = """<!DOCTYPE html>
       const openrouterCount = appData.openrouter ? appData.openrouter.length : 0;
       const grokCount = appData.grok ? appData.grok.length : 0;
       const dahlCount = appData.dahl ? appData.dahl.length : 0;
-      const totalCount = openrouterCount + grokCount + dahlCount;
+      const tokenharborCount = appData.tokenharbor ? appData.tokenharbor.length : 0;
+      const totalCount = openrouterCount + grokCount + dahlCount + tokenharborCount;
 
       const oC = document.getElementById('openrouterCount'); if (oC) oC.innerText = openrouterCount;
       const grC = document.getElementById('grokCount'); if (grC) grC.innerText = grokCount;
       const dC = document.getElementById('dahlCount'); if (dC) dC.innerText = dahlCount;
+      const thC = document.getElementById('tokenharborCount'); if (thC) thC.innerText = tokenharborCount;
       const tC = document.getElementById('totalAllCount'); if (tC) tC.innerText = totalCount;
 
       const bA = document.getElementById('badge_all'); if (bA) bA.innerText = totalCount;
       const bD = document.getElementById('badge_dahl'); if (bD) bD.innerText = dahlCount;
       const bO = document.getElementById('badge_openrouter'); if (bO) bO.innerText = openrouterCount;
       const bGr = document.getElementById('badge_grok'); if (bGr) bGr.innerText = grokCount;
+      const bTh = document.getElementById('badge_tokenharbor'); if (bTh) bTh.innerText = tokenharborCount;
 
       const routerBadge = document.getElementById('routerStatusBadge');
       if (routerBadge) {
@@ -941,6 +1073,7 @@ HTML_PAGE = """<!DOCTYPE html>
       renderDahl();
       renderOpenRouter();
       renderGrok();
+      renderTokenHarbor();
     }
 
     // 0. UNIFIED VIEW
@@ -995,6 +1128,23 @@ HTML_PAGE = """<!DOCTYPE html>
             statusId: `status_${a.id}`,
             testCall: `testKey('grok', '${a.id}', '${a.access_token}')`,
             deleteCall: `deleteKey('grok', '${a.id}', '${a.router_id || ''}')`
+          });
+        }
+      });
+
+      (appData.tokenharbor || []).forEach(k => {
+        if (!searchQuery || k.email.toLowerCase().includes(searchQuery) || k.key.toLowerCase().includes(searchQuery)) {
+          allRows.push({
+            rawProvider: 'tokenharbor',
+            id: k.id,
+            router_id: k.router_id,
+            provider: '<span class="px-2 py-0.5 rounded bg-teal-500/10 text-teal-400 border border-teal-500/30 text-[10px] font-semibold"><i class="fa-solid fa-anchor mr-1"></i>TokenHarbor</span>',
+            identifier: k.email,
+            credential: k.key,
+            routerBadge: renderRouterBadge(k.router_id),
+            statusId: `status_${k.id}`,
+            testCall: `testKey('tokenharbor', '${k.id}', '${k.key}')`,
+            deleteCall: `deleteKey('tokenharbor', '${k.id}', '${k.router_id || ''}')`
           });
         }
       });
@@ -1137,6 +1287,41 @@ HTML_PAGE = """<!DOCTYPE html>
       `).join('');
     }
 
+    // 4. TOKENHARBOR VIEW
+    function renderTokenHarbor() {
+      const el = document.getElementById('tokenharborTbody');
+      if (!el) return;
+      const items = (appData.tokenharbor || []).filter(k => !searchQuery || k.email.toLowerCase().includes(searchQuery) || k.key.toLowerCase().includes(searchQuery));
+      if (items.length === 0) {
+        el.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-slate-500">No TokenHarbor keys found</td></tr>';
+        return;
+      }
+      el.innerHTML = items.map(k => `
+        <tr class="table-row-hover transition-colors">
+          <td class="py-3 px-4 font-sans text-slate-200 font-medium">${k.email}</td>
+          <td class="py-3 px-4">
+            <span onclick="copyToClipboard('${k.key}', null)" title="Click to copy full key" class="cursor-pointer text-slate-400 hover:text-white bg-slate-900 px-2 py-1 rounded border border-slate-800 text-[11px] inline-flex items-center gap-1 transition">
+              <span>${k.key.substring(0, 18)}...${k.key.substring(k.key.length - 8)}</span>
+              <i class="fa-solid fa-copy text-[10px] text-slate-500"></i>
+            </span>
+          </td>
+          <td class="py-3 px-4 whitespace-nowrap">${renderRouterBadge(k.router_id)}</td>
+          <td class="py-3 px-4 whitespace-nowrap">
+            <div id="status_${k.id}" class="status-cell-${k.id} text-[11px]">${getStatusHTML(k.id)}</div>
+          </td>
+          <td class="py-3 px-4 text-right whitespace-nowrap space-x-2">
+            <button onclick="testKey('tokenharbor', '${k.id}', '${k.key}')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-[11px] inline-flex items-center gap-1">
+              <i class="fa-solid fa-arrows-rotate text-[10px]"></i> Test
+            </button>
+            ${renderSyncButton('tokenharbor', k.id, k.router_id)}
+            <button onclick="deleteKey('tokenharbor', '${k.id}', '${k.router_id || ''}')" title="Delete key" class="p-1 text-rose-400 hover:text-rose-300 transition">
+              <i class="fa-solid fa-trash-can text-xs"></i>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
     async function testKey(provider, id, secret) {
       testCache[id] = { loading: true };
       updateStatusDisplay(id);
@@ -1165,6 +1350,9 @@ HTML_PAGE = """<!DOCTYPE html>
       }
       if (targetProvider === 'all' || targetProvider === 'grok') {
         for (const a of (appData.grok || [])) { testKey('grok', a.id, a.access_token); }
+      }
+      if (targetProvider === 'all' || targetProvider === 'tokenharbor') {
+        for (const k of (appData.tokenharbor || [])) { testKey('tokenharbor', k.id, k.key); }
       }
     }
 
@@ -1299,6 +1487,12 @@ HTML_PAGE = """<!DOCTYPE html>
       copyToClipboard(text, null, 'Copied All');
     }
 
+    function copyAllTokenHarbor() {
+      if (!appData.tokenharbor || appData.tokenharbor.length === 0) return showToast('No TokenHarbor keys to copy', false);
+      const text = appData.tokenharbor.map(k => `${k.email}|${k.key}`).join('\\n');
+      copyToClipboard(text, null, 'Copied All');
+    }
+
     async function triggerFarm(provider, count) {
       const num = parseInt(count, 10) || 1;
       const res = await fetch('/api/farm', {
@@ -1378,6 +1572,7 @@ def get_all_dashboard_data():
     dahl_keys = read_dahl_keys()
     openrouter_keys = read_openrouter_keys()
     grok_accs = read_grok_accounts()
+    tokenharbor_keys = read_tokenharbor_keys()
 
     conns = fetch_9router_connections()
 
@@ -1396,10 +1591,16 @@ def get_all_dashboard_data():
         a["router_id"] = rid
         a["in_router"] = bool(rid)
 
+    for k in tokenharbor_keys:
+        rid = match_router_connection("tokenharbor", k, conns)
+        k["router_id"] = rid
+        k["in_router"] = bool(rid)
+
     return {
         "dahl": dahl_keys,
         "openrouter": openrouter_keys,
         "grok": grok_accs,
+        "tokenharbor": tokenharbor_keys,
         "router_connected": len(conns) > 0,
         "router_count": len(conns)
     }
@@ -1453,6 +1654,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 res = test_single_openrouter(secret)
             elif provider == "grok":
                 res = test_single_grok(secret)
+            elif provider == "tokenharbor":
+                res = test_single_tokenharbor(secret)
             else:
                 res = {"active": False, "error": "Unknown provider"}
             self.send_response(200)
@@ -1481,6 +1684,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif provider == "grok":
                 accs = [a for a in read_grok_accounts() if a.get("id") != item_id]
                 save_grok_accounts(accs)
+            elif provider == "tokenharbor":
+                keys = [k for k in read_tokenharbor_keys() if k["id"] != item_id]
+                save_tokenharbor_keys(keys)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

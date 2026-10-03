@@ -205,23 +205,12 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
         else:
             print("[2/6] Direct 'Create account' signup form active.", flush=True)
 
-        # Step 3: Fill credentials with human-like typing simulation
-        print("[3/6] Typing credentials with human delays...", flush=True)
-        email_inp.click()
-        time.sleep(0.3)
-        for ch in account_email:
-            email_inp.input(ch)
-            time.sleep(random.uniform(0.03, 0.07))
-
-        time.sleep(0.8)
-        pass_inp.click()
-        time.sleep(0.3)
-        for ch in account_pass:
-            pass_inp.input(ch)
-            time.sleep(random.uniform(0.03, 0.07))
-
-        # Wait human cooldown to avoid 'doing that a bit fast' rate threshold
-        time.sleep(6)
+        # Step 3: Fill credentials directly
+        print("[3/6] Filling credentials...", flush=True)
+        email_inp.input(account_email)
+        time.sleep(0.5)
+        pass_inp.input(account_pass)
+        time.sleep(1)
 
         if submit_btn:
             submit_btn.click()

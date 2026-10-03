@@ -257,9 +257,8 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
         time.sleep(4)
 
         new_key_btn = (
-            page.ele('xpath://button[contains(., "New key") or contains(., "New Key")]', timeout=6)
-            or page.ele('xpath://button[contains(., "Create key") or contains(., "Create Key")]', timeout=4)
-            or page.ele('text:New key', timeout=4)
+            page.ele('xpath://button[contains(., "New key")]', timeout=8)
+            or page.ele('text:New key', timeout=5)
             or page.ele('xpath://button[contains(., "+")]', timeout=3)
         )
         if new_key_btn:
@@ -267,28 +266,25 @@ def harvest_tokenharbor(index=1, total=1, headless=True, proxy_obj=None):
             new_key_btn.click()
             time.sleep(1.5)
 
-        label_inp = page.ele('xpath://input[@name="name" or @name="label" or @placeholder]', timeout=5) or page.ele('tag:input', timeout=5)
-        if label_inp:
-            label_inp.input("default-key")
-            time.sleep(0.5)
+            label_inp = page.ele('@placeholder=e.g. Cursor, Production, Side project', timeout=5) or page.ele('xpath://input[@name="name" or @name="label" or @placeholder]', timeout=3)
+            if label_inp:
+                label_inp.input("default-key")
+                time.sleep(0.5)
 
-        create_key_btn = page.ele('xpath://button[normalize-space()="Create key" or normalize-space()="Create"]', timeout=5) or page.ele('xpath://button[@type="submit"]', timeout=3)
-        if create_key_btn:
-            print("  [*] Submitting key creation...", flush=True)
-            try:
+            create_key_btn = page.ele('xpath://button[normalize-space()="Create key"]', timeout=5)
+            if create_key_btn:
+                print("  [*] Submitting key creation...", flush=True)
                 create_key_btn.click()
-            except Exception:
-                pass
-            time.sleep(3)
+                time.sleep(3)
 
         # Extract thk_live_... key from page
-        matches = re.findall(r'thk_live_[a-zA-Z0-9_\-]{30,}', page.html)
+        matches = [m for m in re.findall(r'thk_live_[a-zA-Z0-9_\-]{30,}', page.html) if '•' not in m]
         if not matches:
             try:
-                for el in page.eles('tag:input') + page.eles('tag:code') + page.eles('tag:span'):
+                for el in page.eles('tag:code') + page.eles('tag:input') + page.eles('tag:span'):
                     try:
                         val = el.attr('value') or el.text or ''
-                        m = re.findall(r'thk_live_[a-zA-Z0-9_\-]{30,}', val)
+                        m = [k for k in re.findall(r'thk_live_[a-zA-Z0-9_\-]{30,}', val) if '•' not in k]
                         if m:
                             matches = m
                             break

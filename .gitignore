@@ -1,0 +1,41 @@
+# Environment and Secrets (CRITICAL)
+.env
+*.env
+**/.env
+**/*.env
+.env.*
+!.env.example
+!**/.env.example
+.webshare_cache.json
+
+# Generated Accounts and Keys
+keys/
+**/keys/
+*.txt
+!requirements.txt
+!*/requirements.txt
+grok_accounts.json
+**/grok_accounts.json
+grok_revoked.json
+**/grok_revoked.json
+
+# Screenshots & Debug logs
+*.png
+**/*.png
+*.log
+**/*.log
+
+# Python cache & temp
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Editor and OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
